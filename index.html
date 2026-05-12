@@ -93,12 +93,7 @@
             <button id="startBtn" class="primary">Start session</button>
           </div>
         </div>
-
-        <div class="card install-card">
-          <h2>iPhone install</h2>
-          <p>Open this in Safari, tap Share, then Add to Home Screen.</p>
-        </div>
-      </div>
+</div>
     </section>
 
     <section id="quiz-screen" class="screen">
@@ -122,10 +117,10 @@
             <div id="questionText" class="question-text">83-2-4+2+2</div>
           </div>
 
-          <form id="answerForm" class="answer-form" autocomplete="off">
-            <input id="answerInput" inputmode="numeric" enterkeyhint="done" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Type answer">
-            <button type="submit" class="primary">Submit</button>
-          </form>
+          <div id="answerForm" class="answer-form" aria-label="Answer controls">
+            <div id="answerDisplay" class="answer-display placeholder" aria-live="polite" aria-label="Your answer">__</div>
+            <button id="submitBtn" type="button" class="primary">Submit</button>
+          </div>
 
           <div class="keypad">
             <button class="key" data-key="1">1</button>

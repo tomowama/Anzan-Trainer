@@ -11,10 +11,10 @@ const LEVELS = {
 const DEFAULT_COUNTS = {
   6: [24, 18, 18],
   5: [24, 18, 18],
-  4: [24, 18, 18],
-  3: [24, 18, 18],
-  2: [24, 18, 18],
-  1: [24, 18, 18]
+  4: [22, 18, 18],
+  3: [20, 20, 20],
+  2: [18, 20, 20],
+  1: [16, 20, 20]
 };
 
 const els = {
@@ -41,7 +41,8 @@ const els = {
   questionIndexPill: document.getElementById("questionIndexPill"),
   questionText: document.getElementById("questionText"),
   answerForm: document.getElementById("answerForm"),
-  answerInput: document.getElementById("answerInput"),
+  answerDisplay: document.getElementById("answerDisplay"),
+  submitBtn: document.getElementById("submitBtn"),
   feedbackBanner: document.getElementById("feedbackBanner"),
   doneSummary: document.getElementById("doneSummary"),
   mistakeSummary: document.getElementById("mistakeSummary")
@@ -57,7 +58,8 @@ let state = {
   shown: 0,
   firstPassCorrect: 0,
   attempts: 0,
-  misses: 0
+  misses: 0,
+  answerText: ""
 };
 
 function showScreen(name) {
@@ -320,6 +322,7 @@ function startSession(reuseCurrent=false) {
   state.firstPassCorrect = 0;
   state.attempts = 0;
   state.misses = 0;
+  state.answerText = "";
 
   showScreen("quiz");
   nextQuestion();
@@ -339,8 +342,8 @@ function nextQuestion() {
   state.current = state.queue.shift();
   state.shown += 1;
   renderCurrent();
-  els.answerInput.value = "";
-  setTimeout(() => els.answerInput.focus(), 30);
+  state.answerText = "";
+  renderAnswer();
 }
 
 function categoryName(cat) {
@@ -361,6 +364,11 @@ function renderCurrent() {
   hideFeedback();
 }
 
+function renderAnswer() {
+  els.answerDisplay.textContent = state.answerText === "" ? "__" : state.answerText;
+  els.answerDisplay.classList.toggle("placeholder", state.answerText === "");
+}
+
 function showFeedback(ok, text) {
   els.feedbackBanner.textContent = text;
   els.feedbackBanner.classList.remove("hidden", "good", "bad");
@@ -375,7 +383,7 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 async function submitAnswer() {
   if (!state.current) return;
-  const given = els.answerInput.value.trim();
+  const given = state.answerText.trim();
   if (!given) return;
   const correct = state.current.answer;
   const ok = given === correct;
@@ -408,8 +416,7 @@ function finishSession() {
   showScreen("done");
 }
 
-els.answerForm.addEventListener("submit", (e) => {
-  e.preventDefault();
+els.submitBtn.addEventListener("click", () => {
   submitAnswer();
 });
 
@@ -431,14 +438,34 @@ document.querySelectorAll(".keypad .key").forEach(btn => {
   btn.addEventListener("click", () => {
     const key = btn.dataset.key;
     if (key === "back") {
-      els.answerInput.value = els.answerInput.value.slice(0, -1);
+      state.answerText = state.answerText.slice(0, -1);
     } else if (key === "clear") {
-      els.answerInput.value = "";
+      state.answerText = "";
     } else {
-      els.answerInput.value += key;
+      state.answerText += key;
     }
-    els.answerInput.focus();
+    renderAnswer();
   });
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!els.quizScreen.classList.contains("active")) return;
+  if (/^[0-9]$/.test(e.key)) {
+    state.answerText += e.key;
+    renderAnswer();
+    e.preventDefault();
+  } else if (e.key === "Backspace") {
+    state.answerText = state.answerText.slice(0, -1);
+    renderAnswer();
+    e.preventDefault();
+  } else if (e.key === "Escape") {
+    state.answerText = "";
+    renderAnswer();
+    e.preventDefault();
+  } else if (e.key === "Enter") {
+    submitAnswer();
+    e.preventDefault();
+  }
 });
 
 if ("serviceWorker" in navigator) {
