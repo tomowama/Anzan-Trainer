@@ -268,7 +268,7 @@ function parseSettings() {
   const wariCount = Number(els.wariCount.value || defaults[2]);
   const rawSeed = (els.seed.value || "").trim();
   const day = Math.max(1, Number(els.day.value || 1));
-  const feedbackPause = Number(els.feedbackPause.value || 0.3);
+  const feedbackPause = Number(els.feedbackPause.value || 0.8);
   return {
     level,
     seed: rawSeed || `session-${Date.now()}`,
