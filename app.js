@@ -23,7 +23,6 @@ const els = {
   doneScreen: document.getElementById("done-screen"),
   level: document.getElementById("level"),
   seed: document.getElementById("seed"),
-  day: document.getElementById("day"),
   feedbackPause: document.getElementById("feedbackPause"),
   mitoriCount: document.getElementById("mitoriCount"),
   kakeCount: document.getElementById("kakeCount"),
@@ -73,7 +72,11 @@ function showScreen(name) {
 
 function saveSettings() {
   if (!state.settings) return;
-  localStorage.setItem("anzanTrainerSettings", JSON.stringify(state.settings));
+  const persisted = {
+    ...state.settings,
+    seed: state.settings.seedWasBlank ? "" : state.settings.seed
+  };
+  localStorage.setItem("anzanTrainerSettings", JSON.stringify(persisted));
 }
 
 function loadSavedSettings() {
@@ -83,8 +86,7 @@ function loadSavedSettings() {
     const s = JSON.parse(raw);
     els.level.value = String(s.level ?? 6);
     els.seed.value = s.seed ?? "";
-    els.day.value = String(s.day ?? 1);
-    els.feedbackPause.value = String(s.feedbackPause ?? 0.3);
+    els.feedbackPause.value = String(s.feedbackPause ?? 0.8);
     els.mitoriCount.value = s.mitoriCount ?? "";
     els.kakeCount.value = s.kakeCount ?? "";
     els.wariCount.value = s.wariCount ?? "";
@@ -267,13 +269,12 @@ function parseSettings() {
   const kakeCount = Number(els.kakeCount.value || defaults[1]);
   const wariCount = Number(els.wariCount.value || defaults[2]);
   const rawSeed = (els.seed.value || "").trim();
-  const day = Math.max(1, Number(els.day.value || 1));
   const feedbackPause = Number(els.feedbackPause.value || 0.8);
+  const generatedSeed = `session-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   return {
     level,
-    seed: rawSeed || `session-${Date.now()}`,
+    seed: rawSeed || generatedSeed,
     seedWasBlank: rawSeed === "",
-    day,
     feedbackPause,
     mitoriCount,
     kakeCount,
@@ -284,9 +285,8 @@ function parseSettings() {
 }
 
 function buildProblemSet(settings) {
-  const baseSeed = hashSeed(settings.seed);
-  const daySeed = hashSeed(`${baseSeed}|${settings.level}|${settings.day}`);
-  const rng = new RNG(daySeed);
+  const seed = hashSeed(`${settings.seed}|${settings.level}`);
+  const rng = new RNG(seed);
 
   const problems = generateDay(
     settings.level,
@@ -430,8 +430,14 @@ document.querySelectorAll("[data-preset]").forEach(btn => {
 
 els.level.addEventListener("change", () => applyDefaultsForLevel(Number(els.level.value)));
 els.startBtn.addEventListener("click", () => startSession(false));
-els.quitBtn.addEventListener("click", () => showScreen("setup"));
-els.againBtn.addEventListener("click", () => showScreen("setup"));
+els.quitBtn.addEventListener("click", () => {
+  if (state.settings?.seedWasBlank) els.seed.value = "";
+  showScreen("setup");
+});
+els.againBtn.addEventListener("click", () => {
+  if (state.settings?.seedWasBlank) els.seed.value = "";
+  showScreen("setup");
+});
 els.repeatBtn.addEventListener("click", () => startSession(true));
 
 document.querySelectorAll(".keypad .key").forEach(btn => {
