@@ -22,7 +22,6 @@ const els = {
   quizScreen: document.getElementById("quiz-screen"),
   doneScreen: document.getElementById("done-screen"),
   level: document.getElementById("level"),
-  seed: document.getElementById("seed"),
   feedbackPause: document.getElementById("feedbackPause"),
   mitoriCount: document.getElementById("mitoriCount"),
   kakeCount: document.getElementById("kakeCount"),
@@ -73,8 +72,13 @@ function showScreen(name) {
 function saveSettings() {
   if (!state.settings) return;
   const persisted = {
-    ...state.settings,
-    seed: state.settings.seedWasBlank ? "" : state.settings.seed
+    level: state.settings.level,
+    feedbackPause: state.settings.feedbackPause,
+    mitoriCount: state.settings.mitoriCount,
+    kakeCount: state.settings.kakeCount,
+    wariCount: state.settings.wariCount,
+    redoMisses: state.settings.redoMisses,
+    shuffleQuestions: state.settings.shuffleQuestions
   };
   localStorage.setItem("anzanTrainerSettings", JSON.stringify(persisted));
 }
@@ -85,7 +89,6 @@ function loadSavedSettings() {
     if (!raw) return;
     const s = JSON.parse(raw);
     els.level.value = String(s.level ?? 6);
-    els.seed.value = s.seed ?? "";
     els.feedbackPause.value = String(s.feedbackPause ?? 0.8);
     els.mitoriCount.value = s.mitoriCount ?? "";
     els.kakeCount.value = s.kakeCount ?? "";
@@ -268,13 +271,11 @@ function parseSettings() {
   const mitoriCount = Number(els.mitoriCount.value || defaults[0]);
   const kakeCount = Number(els.kakeCount.value || defaults[1]);
   const wariCount = Number(els.wariCount.value || defaults[2]);
-  const rawSeed = (els.seed.value || "").trim();
   const feedbackPause = Number(els.feedbackPause.value || 0.8);
   const generatedSeed = `session-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   return {
     level,
-    seed: rawSeed || generatedSeed,
-    seedWasBlank: rawSeed === "",
+    seed: generatedSeed,
     feedbackPause,
     mitoriCount,
     kakeCount,
@@ -305,12 +306,6 @@ function startSession(reuseCurrent=false) {
   const settings = reuseCurrent && state.settings ? state.settings : parseSettings();
   state.settings = settings;
   saveSettings();
-  if (!reuseCurrent && settings.seedWasBlank) {
-    // keep the UI blank for "fresh session" behavior, but preserve the actual
-    // session seed internally so "Run same settings again" repeats the set.
-  } else {
-    els.seed.value = settings.seed;
-  }
 
   const problems = buildProblemSet(settings);
   state.problems = problems;
@@ -430,14 +425,8 @@ document.querySelectorAll("[data-preset]").forEach(btn => {
 
 els.level.addEventListener("change", () => applyDefaultsForLevel(Number(els.level.value)));
 els.startBtn.addEventListener("click", () => startSession(false));
-els.quitBtn.addEventListener("click", () => {
-  if (state.settings?.seedWasBlank) els.seed.value = "";
-  showScreen("setup");
-});
-els.againBtn.addEventListener("click", () => {
-  if (state.settings?.seedWasBlank) els.seed.value = "";
-  showScreen("setup");
-});
+els.quitBtn.addEventListener("click", () => showScreen("setup"));
+els.againBtn.addEventListener("click", () => showScreen("setup"));
 els.repeatBtn.addEventListener("click", () => startSession(true));
 
 document.querySelectorAll(".keypad .key").forEach(btn => {
@@ -482,3 +471,4 @@ if ("serviceWorker" in navigator) {
 
 loadSavedSettings();
 if (!els.mitoriCount.value) applyDefaultsForLevel(Number(els.level.value));
+if (!els.feedbackPause.value) els.feedbackPause.value = "0.8";
