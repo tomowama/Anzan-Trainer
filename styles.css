@@ -19,6 +19,16 @@
 html,body{margin:0;padding:0;background:radial-gradient(circle at top, #15213d 0%, #050b18 55%, #020617 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;min-height:100%}
 body{min-height:100vh}
 button,input,select{font:inherit}
+
+button,
+.keypad .key,
+.answer-form,
+.answer-display,
+.question-card {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
 .screen{display:none;min-height:100vh;padding:var(--safe-top) 16px var(--safe-bottom)}
 .screen.active{display:block}
 .shell{max-width:720px;margin:0 auto}
