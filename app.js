@@ -11,10 +11,18 @@ const LEVELS = {
 const DEFAULT_COUNTS = {
   6: [24, 18, 18],
   5: [24, 18, 18],
-  4: [22, 18, 18],
-  3: [20, 20, 20],
-  2: [18, 20, 20],
-  1: [16, 20, 20]
+  4: [24, 18, 18],
+  3: [24, 18, 18],
+  2: [24, 18, 18],
+  1: [24, 18, 18]
+};
+
+const VOLUME_PRESETS = {
+  10: [4, 3, 3],
+  30: [12, 9, 9],
+  60: [24, 18, 18],
+  90: [36, 27, 27],
+  120: [48, 36, 36]
 };
 
 const els = {
@@ -32,6 +40,7 @@ const els = {
   quitBtn: document.getElementById("quitBtn"),
   againBtn: document.getElementById("againBtn"),
   repeatBtn: document.getElementById("repeatBtn"),
+  todayCount: document.getElementById("todayCount"),
   progressText: document.getElementById("progressText"),
   accuracyText: document.getElementById("accuracyText"),
   roundText: document.getElementById("roundText"),
@@ -60,13 +69,63 @@ let state = {
   answerText: ""
 };
 
+const DAILY_STATS_KEY = "anzanDailyStatsV1";
+
+function trainingDayKey(date = new Date()) {
+  // Training day resets at 4:00 AM local time.
+  const d = new Date(date);
+  if (d.getHours() < 4) {
+    d.setDate(d.getDate() - 1);
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDailyStats() {
+  const key = trainingDayKey();
+  try {
+    const raw = localStorage.getItem(DAILY_STATS_KEY);
+    if (raw) {
+      const stats = JSON.parse(raw);
+      if (stats.dayKey === key) {
+        return { dayKey: key, completed: Number(stats.completed || 0) };
+      }
+    }
+  } catch {}
+  return { dayKey: key, completed: 0 };
+}
+
+function saveDailyStats(stats) {
+  localStorage.setItem(DAILY_STATS_KEY, JSON.stringify(stats));
+}
+
+function renderDailyStats() {
+  const stats = getDailyStats();
+  if (els.todayCount) els.todayCount.textContent = String(stats.completed);
+}
+
+function incrementDailyCompleted(amount = 1) {
+  const stats = getDailyStats();
+  stats.completed += amount;
+  saveDailyStats(stats);
+  renderDailyStats();
+}
+
 function showScreen(name) {
   for (const screen of [els.setupScreen, els.quizScreen, els.doneScreen]) {
     screen.classList.remove("active");
   }
-  if (name === "setup") els.setupScreen.classList.add("active");
+  if (name === "setup") {
+    renderDailyStats();
+    els.setupScreen.classList.add("active");
+  }
   if (name === "quiz") els.quizScreen.classList.add("active");
-  if (name === "done") els.doneScreen.classList.add("active");
+  if (name === "done") {
+    renderDailyStats();
+    els.doneScreen.classList.add("active");
+  }
 }
 
 function saveSettings() {
@@ -98,18 +157,35 @@ function loadSavedSettings() {
   } catch {}
 }
 
-function applyDefaultsForLevel(level) {
-  const [s, m, d] = DEFAULT_COUNTS[level];
-  els.mitoriCount.value = s;
-  els.kakeCount.value = m;
-  els.wariCount.value = d;
+function setCounts(mitori, kake, wari) {
+  els.mitoriCount.value = mitori;
+  els.kakeCount.value = kake;
+  els.wariCount.value = wari;
 }
 
-function applyDoubleForLevel(level) {
+function applyDefaultsForLevel(level) {
   const [s, m, d] = DEFAULT_COUNTS[level];
-  els.mitoriCount.value = s * 2;
-  els.kakeCount.value = m * 2;
-  els.wariCount.value = d * 2;
+  setCounts(s, m, d);
+  updateVolumeButtonState(60);
+}
+
+function applyVolumePreset(total) {
+  const preset = VOLUME_PRESETS[total];
+  if (!preset) return;
+  setCounts(preset[0], preset[1], preset[2]);
+  updateVolumeButtonState(total);
+}
+
+function updateVolumeButtonState(activeTotal = null) {
+  document.querySelectorAll("[data-volume]").forEach(btn => {
+    const total = Number(btn.dataset.volume);
+    const preset = VOLUME_PRESETS[total];
+    const isMatchingPreset = preset &&
+      Number(els.mitoriCount.value) === preset[0] &&
+      Number(els.kakeCount.value) === preset[1] &&
+      Number(els.wariCount.value) === preset[2];
+    btn.classList.toggle("active", Boolean(isMatchingPreset && (activeTotal === null || total === activeTotal)));
+  });
 }
 
 function mulberry32(seed) {
@@ -383,7 +459,10 @@ async function submitAnswer() {
   const correct = state.current.answer;
   const ok = given === correct;
   state.attempts += 1;
-  if (state.current.round_no === 1 && ok) state.firstPassCorrect += 1;
+  if (state.current.round_no === 1) {
+    incrementDailyCompleted(1);
+    if (ok) state.firstPassCorrect += 1;
+  }
   if (!ok) {
     state.misses += 1;
     if (state.settings.redoMisses) {
@@ -415,11 +494,15 @@ els.submitBtn.addEventListener("click", () => {
   submitAnswer();
 });
 
-document.querySelectorAll("[data-preset]").forEach(btn => {
+document.querySelectorAll("[data-volume]").forEach(btn => {
   btn.addEventListener("click", () => {
-    const level = Number(els.level.value);
-    if (btn.dataset.preset === "defaults") applyDefaultsForLevel(level);
-    if (btn.dataset.preset === "double") applyDoubleForLevel(level);
+    applyVolumePreset(Number(btn.dataset.volume));
+  });
+});
+
+["input", "change"].forEach(eventName => {
+  [els.mitoriCount, els.kakeCount, els.wariCount].forEach(input => {
+    input.addEventListener(eventName, () => updateVolumeButtonState(null));
   });
 });
 
@@ -472,3 +555,5 @@ if ("serviceWorker" in navigator) {
 loadSavedSettings();
 if (!els.mitoriCount.value) applyDefaultsForLevel(Number(els.level.value));
 if (!els.feedbackPause.value) els.feedbackPause.value = "0.8";
+updateVolumeButtonState(null);
+renderDailyStats();
