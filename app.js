@@ -9,20 +9,20 @@ const LEVELS = {
 };
 
 const DEFAULT_COUNTS = {
-  6: [24, 18, 18],
-  5: [24, 18, 18],
-  4: [24, 18, 18],
-  3: [24, 18, 18],
-  2: [24, 18, 18],
-  1: [24, 18, 18]
+  6: [20, 30, 30],
+  5: [20, 30, 30],
+  4: [20, 30, 30],
+  3: [20, 30, 30],
+  2: [20, 30, 30],
+  1: [20, 30, 30]
 };
 
 const VOLUME_PRESETS = {
-  10: [4, 3, 3],
-  30: [12, 9, 9],
-  60: [24, 18, 18],
-  90: [36, 27, 27],
-  120: [48, 36, 36]
+  16: [4, 6, 6],
+  32: [8, 12, 12],
+  48: [12, 18, 18],
+  64: [16, 24, 24],
+  80: [20, 30, 30]
 };
 
 const els = {
@@ -166,7 +166,7 @@ function setCounts(mitori, kake, wari) {
 function applyDefaultsForLevel(level) {
   const [s, m, d] = DEFAULT_COUNTS[level];
   setCounts(s, m, d);
-  updateVolumeButtonState(60);
+  updateVolumeButtonState(80);
 }
 
 function applyVolumePreset(total) {
