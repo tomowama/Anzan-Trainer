@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "anzan-pwa-v8";
+const CACHE_NAME = "anzan-pwa-v9";
 const ASSETS = [
   "./",
   "./index.html",

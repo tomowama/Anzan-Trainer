@@ -41,6 +41,7 @@ const els = {
   againBtn: document.getElementById("againBtn"),
   repeatBtn: document.getElementById("repeatBtn"),
   todayCount: document.getElementById("todayCount"),
+  todayTime: document.getElementById("todayTime"),
   progressText: document.getElementById("progressText"),
   accuracyText: document.getElementById("accuracyText"),
   roundText: document.getElementById("roundText"),
@@ -66,7 +67,8 @@ let state = {
   firstPassCorrect: 0,
   attempts: 0,
   misses: 0,
-  answerText: ""
+  answerText: "",
+  questionStartedAt: null
 };
 
 const DAILY_STATS_KEY = "anzanDailyStatsV1";
@@ -90,25 +92,49 @@ function getDailyStats() {
     if (raw) {
       const stats = JSON.parse(raw);
       if (stats.dayKey === key) {
-        return { dayKey: key, completed: Number(stats.completed || 0) };
+        return {
+          dayKey: key,
+          completed: Number(stats.completed || 0),
+          activeMs: Number(stats.activeMs || 0)
+        };
       }
     }
   } catch {}
-  return { dayKey: key, completed: 0 };
+  return { dayKey: key, completed: 0, activeMs: 0 };
 }
 
 function saveDailyStats(stats) {
   localStorage.setItem(DAILY_STATS_KEY, JSON.stringify(stats));
 }
 
+function formatDuration(ms) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function renderDailyStats() {
   const stats = getDailyStats();
   if (els.todayCount) els.todayCount.textContent = String(stats.completed);
+  if (els.todayTime) els.todayTime.textContent = formatDuration(stats.activeMs);
 }
 
 function incrementDailyCompleted(amount = 1) {
   const stats = getDailyStats();
   stats.completed += amount;
+  saveDailyStats(stats);
+  renderDailyStats();
+}
+
+function incrementDailyActiveMs(ms = 0) {
+  if (!Number.isFinite(ms) || ms <= 0) return;
+  const stats = getDailyStats();
+  stats.activeMs += ms;
   saveDailyStats(stats);
   renderDailyStats();
 }
@@ -394,6 +420,7 @@ function startSession(reuseCurrent=false) {
   state.attempts = 0;
   state.misses = 0;
   state.answerText = "";
+  state.questionStartedAt = null;
 
   showScreen("quiz");
   nextQuestion();
@@ -415,6 +442,7 @@ function nextQuestion() {
   renderCurrent();
   state.answerText = "";
   renderAnswer();
+  state.questionStartedAt = Date.now();
 }
 
 function categoryName(cat) {
@@ -458,6 +486,10 @@ async function submitAnswer() {
   if (!given) return;
   const correct = state.current.answer;
   const ok = given === correct;
+  if (state.questionStartedAt) {
+    incrementDailyActiveMs(Date.now() - state.questionStartedAt);
+    state.questionStartedAt = null;
+  }
   state.attempts += 1;
   if (state.current.round_no === 1) {
     incrementDailyCompleted(1);
@@ -524,6 +556,12 @@ document.querySelectorAll(".keypad .key").forEach(btn => {
     }
     renderAnswer();
   });
+});
+
+
+document.addEventListener("visibilitychange", () => {
+  if (!els.quizScreen.classList.contains("active") || !state.current) return;
+  state.questionStartedAt = document.hidden ? null : Date.now();
 });
 
 document.addEventListener("keydown", (e) => {
