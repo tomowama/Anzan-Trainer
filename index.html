@@ -21,13 +21,10 @@
           <div class="badge">PWA</div>
           <h1>Anzan Trainer</h1>
           <p>One-question-at-a-time mobile trainer for mitori, kake, and wari.</p>
-          <div class="daily-stat" aria-live="polite">
-            <span class="daily-stat-label">Today</span>
-            <strong id="todayCount">0</strong>
-            <span>problems</span>
-            <span class="daily-separator">•</span>
-            <strong id="todayTime">0:00</strong>
-            <span>active</span>
+          <div class="stat-strip" aria-live="polite">
+            <div><span>Streak</span><strong id="streakText">0 days</strong></div>
+            <div><span>Total</span><strong id="totalProblems">0 problems</strong></div>
+            <div><span>Total time</span><strong id="totalTime">0:00</strong></div>
           </div>
         </header>
 
@@ -93,6 +90,41 @@
             <button id="startBtn" class="primary">Start session</button>
           </div>
         </div>
+
+        <div class="card sync-card">
+          <div class="section-head">
+            <div>
+              <h2>Cloud sync</h2>
+              <p id="syncStatus" class="muted">Local-only until Firebase is configured.</p>
+            </div>
+            <div class="sync-actions">
+              <button id="signInBtn" class="secondary small">Sign in with Google</button>
+              <button id="signOutBtn" class="secondary small hidden-soft">Sign out</button>
+            </div>
+          </div>
+          <p class="muted small-note">Stats are saved locally first, then synced to Firebase when signed in.</p>
+        </div>
+
+        <div class="card heatmap-card">
+          <div class="section-head">
+            <div>
+              <h2 id="heatmapTitle">Year heat map</h2>
+              <p class="muted">Intensity is based on active solving time for each training day.</p>
+            </div>
+            <div class="heatmap-legend" aria-label="Heatmap legend">
+              <span>Less</span>
+              <i class="heat level-0"></i>
+              <i class="heat level-1"></i>
+              <i class="heat level-2"></i>
+              <i class="heat level-3"></i>
+              <i class="heat level-4"></i>
+              <span>More</span>
+            </div>
+          </div>
+          <div class="heatmap-scroll">
+            <div id="heatmapGrid" class="heatmap-grid" aria-label="Anzan yearly heat map"></div>
+          </div>
+        </div>
 </div>
     </section>
 
@@ -155,6 +187,9 @@
     </section>
   </div>
 
-  <script src="./app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore-compat.js"></script>
+  <script type="module" src="./app.js"></script>
 </body>
 </html>

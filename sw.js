@@ -1,10 +1,11 @@
 
-const CACHE_NAME = "anzan-pwa-v9";
+const CACHE_NAME = "anzan-pwa-v17-firebase-compat-no-today-bar";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./firebase-config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

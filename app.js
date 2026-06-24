@@ -1,3 +1,5 @@
+import { FIREBASE_CONFIG } from "./firebase-config.js";
+
 
 const LEVELS = {
   6: { mitori_terms: 5, mitori_total_digits: 6, mitori_exact_digits: null, kake_total_digits: 3, wari_total_digits: 3 },
@@ -42,6 +44,14 @@ const els = {
   repeatBtn: document.getElementById("repeatBtn"),
   todayCount: document.getElementById("todayCount"),
   todayTime: document.getElementById("todayTime"),
+  streakText: document.getElementById("streakText"),
+  totalProblems: document.getElementById("totalProblems"),
+  totalTime: document.getElementById("totalTime"),
+  syncStatus: document.getElementById("syncStatus"),
+  signInBtn: document.getElementById("signInBtn"),
+  signOutBtn: document.getElementById("signOutBtn"),
+  heatmapTitle: document.getElementById("heatmapTitle"),
+  heatmapGrid: document.getElementById("heatmapGrid"),
   progressText: document.getElementById("progressText"),
   accuracyText: document.getElementById("accuracyText"),
   roundText: document.getElementById("roundText"),
@@ -71,40 +81,135 @@ let state = {
   questionStartedAt: null
 };
 
-const DAILY_STATS_KEY = "anzanDailyStatsV1";
+const LEGACY_DAILY_STATS_KEY = "anzanDailyStatsV1";
+const STATS_HISTORY_KEY = "anzanStatsHistoryV2";
+const PENDING_SYNC_KEY = "anzanPendingSyncV1";
+
+let statsHistory = loadStatsHistory();
+let firebaseReady = false;
+let firebaseUser = null;
+let firebaseTools = null;
+let cloudSyncInProgress = false;
 
 function trainingDayKey(date = new Date()) {
   // Training day resets at 4:00 AM local time.
   const d = new Date(date);
-  if (d.getHours() < 4) {
-    d.setDate(d.getDate() - 1);
-  }
+  if (d.getHours() < 4) d.setDate(d.getDate() - 1);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
-function getDailyStats() {
-  const key = trainingDayKey();
+function normalizeDayStats(value = {}) {
+  return {
+    problems: Number(value.problems ?? value.completed ?? 0) || 0,
+    activeMs: Number(value.activeMs || 0) || 0
+  };
+}
+
+function loadStatsHistory() {
+  let history = { days: {}, updatedAt: Date.now() };
   try {
-    const raw = localStorage.getItem(DAILY_STATS_KEY);
+    const raw = localStorage.getItem(STATS_HISTORY_KEY);
     if (raw) {
-      const stats = JSON.parse(raw);
-      if (stats.dayKey === key) {
-        return {
-          dayKey: key,
-          completed: Number(stats.completed || 0),
-          activeMs: Number(stats.activeMs || 0)
-        };
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.days && typeof parsed.days === "object") {
+        history.days = {};
+        for (const [day, value] of Object.entries(parsed.days)) {
+          history.days[day] = normalizeDayStats(value);
+        }
+        history.updatedAt = Number(parsed.updatedAt || Date.now());
+        return history;
       }
     }
   } catch {}
-  return { dayKey: key, completed: 0, activeMs: 0 };
+
+  // One-time migration from the earlier single-day storage format.
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_DAILY_STATS_KEY);
+    if (legacyRaw) {
+      const legacy = JSON.parse(legacyRaw);
+      if (legacy && legacy.dayKey) history.days[legacy.dayKey] = normalizeDayStats(legacy);
+    }
+  } catch {}
+  return history;
 }
 
-function saveDailyStats(stats) {
-  localStorage.setItem(DAILY_STATS_KEY, JSON.stringify(stats));
+function saveStatsHistory(history = statsHistory) {
+  history.updatedAt = Date.now();
+  localStorage.setItem(STATS_HISTORY_KEY, JSON.stringify(history));
+}
+
+function getPendingSync() {
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function savePendingSync(pending) {
+  localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pending));
+}
+
+function addPendingSync(dayKey, problems = 0, activeMs = 0) {
+  if (!firebaseReady || !firebaseUser) return;
+  const pending = getPendingSync();
+  const current = normalizeDayStats(pending[dayKey]);
+  current.problems += problems;
+  current.activeMs += activeMs;
+  pending[dayKey] = current;
+  savePendingSync(pending);
+  flushPendingSync();
+}
+
+function getDayStats(dayKey = trainingDayKey()) {
+  return normalizeDayStats(statsHistory.days[dayKey]);
+}
+
+function getTotals() {
+  let problems = 0;
+  let activeMs = 0;
+  for (const value of Object.values(statsHistory.days)) {
+    const stats = normalizeDayStats(value);
+    problems += stats.problems;
+    activeMs += stats.activeMs;
+  }
+  return { problems, activeMs };
+}
+
+function isActiveDay(dayKey) {
+  const stats = getDayStats(dayKey);
+  return stats.problems > 0 || stats.activeMs > 0;
+}
+
+function addDays(date, delta) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+
+function dateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function currentStreak() {
+  let streak = 0;
+  let d = new Date();
+  if (d.getHours() < 4) d.setDate(d.getDate() - 1);
+  while (true) {
+    const key = dateKey(d);
+    if (!isActiveDay(key)) break;
+    streak += 1;
+    d = addDays(d, -1);
+  }
+  return streak;
 }
 
 function formatDuration(ms) {
@@ -112,31 +217,73 @@ function formatDuration(ms) {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function formatDurationLong(ms) {
+  const totalMinutes = Math.floor(Math.max(0, ms) / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function heatLevel(stats) {
+  const minutes = stats.activeMs / 60000;
+  if (stats.problems <= 0 && stats.activeMs <= 0) return 0;
+  if (minutes < 5) return 1;
+  if (minutes < 15) return 2;
+  if (minutes < 30) return 3;
+  return 4;
+}
+
+function renderHeatmap(year = new Date().getFullYear()) {
+  if (!els.heatmapGrid) return;
+  els.heatmapGrid.innerHTML = "";
+  if (els.heatmapTitle) els.heatmapTitle.textContent = `${year} heat map`;
+
+  const first = new Date(year, 0, 1);
+  const last = new Date(year, 11, 31);
+  for (let i = 0; i < first.getDay(); i++) {
+    const empty = document.createElement("div");
+    empty.className = "heat empty";
+    els.heatmapGrid.appendChild(empty);
+  }
+
+  for (let d = new Date(first); d <= last; d = addDays(d, 1)) {
+    const key = dateKey(d);
+    const stats = getDayStats(key);
+    const cell = document.createElement("div");
+    cell.className = `heat level-${heatLevel(stats)}`;
+    cell.title = `${key}: ${stats.problems} problems, ${formatDurationLong(stats.activeMs)}`;
+    cell.setAttribute("aria-label", cell.title);
+    els.heatmapGrid.appendChild(cell);
+  }
+}
+
 function renderDailyStats() {
-  const stats = getDailyStats();
-  if (els.todayCount) els.todayCount.textContent = String(stats.completed);
-  if (els.todayTime) els.todayTime.textContent = formatDuration(stats.activeMs);
+  const today = getDayStats();
+  const totals = getTotals();
+  const streak = currentStreak();
+  if (els.todayCount) els.todayCount.textContent = String(today.problems);
+  if (els.todayTime) els.todayTime.textContent = formatDuration(today.activeMs);
+  if (els.streakText) els.streakText.textContent = `${streak} day${streak === 1 ? "" : "s"}`;
+  if (els.totalProblems) els.totalProblems.textContent = `${totals.problems} problem${totals.problems === 1 ? "" : "s"}`;
+  if (els.totalTime) els.totalTime.textContent = formatDurationLong(totals.activeMs);
+  renderHeatmap();
 }
 
-function incrementDailyCompleted(amount = 1) {
-  const stats = getDailyStats();
-  stats.completed += amount;
-  saveDailyStats(stats);
+function recordProgress(problems = 0, activeMs = 0) {
+  if ((!Number.isFinite(problems) || problems <= 0) && (!Number.isFinite(activeMs) || activeMs <= 0)) return;
+  const dayKey = trainingDayKey();
+  const stats = getDayStats(dayKey);
+  stats.problems += Math.max(0, Math.floor(problems || 0));
+  stats.activeMs += Math.max(0, Math.floor(activeMs || 0));
+  statsHistory.days[dayKey] = stats;
+  saveStatsHistory();
   renderDailyStats();
-}
-
-function incrementDailyActiveMs(ms = 0) {
-  if (!Number.isFinite(ms) || ms <= 0) return;
-  const stats = getDailyStats();
-  stats.activeMs += ms;
-  saveDailyStats(stats);
-  renderDailyStats();
+  addPendingSync(dayKey, problems, activeMs);
 }
 
 function showScreen(name) {
@@ -486,15 +633,12 @@ async function submitAnswer() {
   if (!given) return;
   const correct = state.current.answer;
   const ok = given === correct;
-  if (state.questionStartedAt) {
-    incrementDailyActiveMs(Date.now() - state.questionStartedAt);
-    state.questionStartedAt = null;
-  }
+  const activeMs = state.questionStartedAt ? Date.now() - state.questionStartedAt : 0;
+  state.questionStartedAt = null;
   state.attempts += 1;
-  if (state.current.round_no === 1) {
-    incrementDailyCompleted(1);
-    if (ok) state.firstPassCorrect += 1;
-  }
+  const problemIncrement = state.current.round_no === 1 ? 1 : 0;
+  if (state.current.round_no === 1 && ok) state.firstPassCorrect += 1;
+  recordProgress(problemIncrement, activeMs);
   if (!ok) {
     state.misses += 1;
     if (state.settings.redoMisses) {
@@ -522,6 +666,212 @@ function finishSession() {
   showScreen("done");
 }
 
+
+function hasFirebaseConfig(config) {
+  return Boolean(config && config.apiKey && config.authDomain && config.projectId && config.appId);
+}
+
+function setSyncStatus(text) {
+  if (els.syncStatus) els.syncStatus.textContent = text;
+}
+
+function setSyncButtons() {
+  if (!els.signInBtn || !els.signOutBtn) return;
+  const configured = hasFirebaseConfig(FIREBASE_CONFIG);
+  els.signInBtn.disabled = !configured || firebaseReady;
+  els.signInBtn.classList.toggle("hidden-soft", firebaseReady);
+  els.signOutBtn.classList.toggle("hidden-soft", !firebaseReady);
+}
+
+function mergeHistories(localHistory, cloudHistory) {
+  const merged = { days: { ...localHistory.days }, updatedAt: Date.now() };
+  for (const [day, cloudValue] of Object.entries(cloudHistory.days || {})) {
+    const localValue = normalizeDayStats(merged.days[day]);
+    const remoteValue = normalizeDayStats(cloudValue);
+    merged.days[day] = {
+      problems: Math.max(localValue.problems, remoteValue.problems),
+      activeMs: Math.max(localValue.activeMs, remoteValue.activeMs)
+    };
+  }
+  return merged;
+}
+
+function dayDoc(dayKey) {
+  const { doc, db } = firebaseTools;
+  return doc(db, "users", firebaseUser.uid, "days", dayKey);
+}
+
+async function fetchCloudHistory() {
+  const { collection, getDocs, db } = firebaseTools;
+  const snap = await getDocs(collection(db, "users", firebaseUser.uid, "days"));
+  const history = { days: {}, updatedAt: Date.now() };
+  snap.forEach(docSnap => {
+    history.days[docSnap.id] = normalizeDayStats(docSnap.data());
+  });
+  return history;
+}
+
+async function uploadExactHistory(history) {
+  const { setDoc, serverTimestamp } = firebaseTools;
+  const entries = Object.entries(history.days || {});
+  for (const [day, stats] of entries) {
+    const clean = normalizeDayStats(stats);
+    if (clean.problems <= 0 && clean.activeMs <= 0) continue;
+    await setDoc(dayDoc(day), {
+      problems: clean.problems,
+      activeMs: clean.activeMs,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+}
+
+async function flushPendingSync() {
+  if (!firebaseReady || !firebaseUser || !firebaseTools || cloudSyncInProgress) return;
+  const pending = getPendingSync();
+  const entries = Object.entries(pending).filter(([, value]) => {
+    const stats = normalizeDayStats(value);
+    return stats.problems > 0 || stats.activeMs > 0;
+  });
+  if (entries.length === 0) return;
+  cloudSyncInProgress = true;
+  setSyncStatus("Syncing stats…");
+  try {
+    const { setDoc, increment, serverTimestamp } = firebaseTools;
+    for (const [day, value] of entries) {
+      const stats = normalizeDayStats(value);
+      await setDoc(dayDoc(day), {
+        problems: increment(stats.problems),
+        activeMs: increment(stats.activeMs),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+      const latest = getPendingSync();
+      delete latest[day];
+      savePendingSync(latest);
+    }
+    setSyncStatus(`Synced as ${firebaseUser.displayName || firebaseUser.email || "signed-in user"}.`);
+  } catch (err) {
+    console.warn("Firebase sync failed", err);
+    setSyncStatus("Offline or sync failed — progress is saved locally and will retry.");
+  } finally {
+    cloudSyncInProgress = false;
+  }
+}
+
+async function initialCloudSync() {
+  if (!firebaseReady || !firebaseUser || !firebaseTools) return;
+  setSyncStatus("Loading cloud stats…");
+  try {
+    const cloudHistory = await fetchCloudHistory();
+    statsHistory = mergeHistories(statsHistory, cloudHistory);
+    saveStatsHistory();
+    renderDailyStats();
+    await uploadExactHistory(statsHistory);
+    await flushPendingSync();
+    setSyncStatus(`Synced as ${firebaseUser.displayName || firebaseUser.email || "signed-in user"}.`);
+  } catch (err) {
+    console.warn("Initial cloud sync failed", err);
+    setSyncStatus("Could not load cloud stats. Local stats are still safe on this device.");
+  }
+}
+
+function compatCollection(db, ...segments) {
+  if (segments.length === 0 || segments.length % 2 === 0) {
+    throw new Error("Invalid Firestore collection path.");
+  }
+  let ref = db.collection(segments[0]);
+  for (let i = 1; i < segments.length; i += 2) {
+    ref = ref.doc(segments[i]);
+    if (i + 1 < segments.length) ref = ref.collection(segments[i + 1]);
+  }
+  return ref;
+}
+
+function compatDoc(db, ...segments) {
+  if (segments.length < 2 || segments.length % 2 !== 0) {
+    throw new Error("Invalid Firestore document path.");
+  }
+  const collectionRef = compatCollection(db, ...segments.slice(0, -1));
+  return collectionRef.doc(segments[segments.length - 1]);
+}
+
+async function initFirebaseSync() {
+  if (!hasFirebaseConfig(FIREBASE_CONFIG)) {
+    setSyncStatus("Firebase config missing — local-only mode.");
+    setSyncButtons();
+    return;
+  }
+
+  try {
+    setSyncStatus("Preparing Firebase sync…");
+
+    if (!window.firebase || !window.firebase.initializeApp || !window.firebase.auth || !window.firebase.firestore) {
+      throw new Error("Firebase compat scripts did not load. Check the three firebase-*-compat.js script tags in index.html.");
+    }
+
+    if (!window.firebase.apps || window.firebase.apps.length === 0) {
+      window.firebase.initializeApp(FIREBASE_CONFIG);
+    }
+
+    const auth = window.firebase.auth();
+    const db = window.firebase.firestore();
+
+    firebaseTools = {
+      auth,
+      db,
+      GoogleAuthProvider: window.firebase.auth.GoogleAuthProvider,
+      signInWithPopup: (authInstance, provider) => authInstance.signInWithPopup(provider),
+      signOut: authInstance => authInstance.signOut(),
+      onAuthStateChanged: (authInstance, callback) => authInstance.onAuthStateChanged(callback),
+      collection: compatCollection,
+      doc: compatDoc,
+      getDocs: ref => ref.get(),
+      setDoc: (ref, data, options) => ref.set(data, options),
+      increment: value => window.firebase.firestore.FieldValue.increment(value),
+      serverTimestamp: () => window.firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    firebaseTools.onAuthStateChanged(auth, async user => {
+      firebaseUser = user;
+      firebaseReady = Boolean(user);
+      setSyncButtons();
+      if (user) {
+        await initialCloudSync();
+      } else {
+        setSyncStatus("Not signed in — stats are saved locally on this device.");
+      }
+    });
+  } catch (err) {
+    console.error("Firebase setup failed", err);
+    const message = err && (err.message || err.code) ? (err.message || err.code) : String(err);
+    setSyncStatus(`Firebase could not load: ${message}`);
+    setSyncButtons();
+  }
+}
+
+async function signIn() {
+  if (!firebaseTools) {
+    setSyncStatus("Firebase has not loaded yet. Check the console, config, and CDN imports.");
+    return;
+  }
+  try {
+    const provider = new firebaseTools.GoogleAuthProvider();
+    await firebaseTools.signInWithPopup(firebaseTools.auth, provider);
+  } catch (err) {
+    console.warn("Sign-in failed", err);
+    setSyncStatus("Sign-in failed. Check Firebase Auth setup and authorized domains.");
+  }
+}
+
+async function signOutUser() {
+  if (!firebaseTools) return;
+  try {
+    await firebaseTools.signOut(firebaseTools.auth);
+  } catch (err) {
+    console.warn("Sign-out failed", err);
+  }
+}
+
+
 els.submitBtn.addEventListener("click", () => {
   submitAnswer();
 });
@@ -543,6 +893,9 @@ els.startBtn.addEventListener("click", () => startSession(false));
 els.quitBtn.addEventListener("click", () => showScreen("setup"));
 els.againBtn.addEventListener("click", () => showScreen("setup"));
 els.repeatBtn.addEventListener("click", () => startSession(true));
+if (els.signInBtn) els.signInBtn.addEventListener("click", signIn);
+if (els.signOutBtn) els.signOutBtn.addEventListener("click", signOutUser);
+window.addEventListener("online", () => flushPendingSync());
 
 document.querySelectorAll(".keypad .key").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -595,3 +948,14 @@ if (!els.mitoriCount.value) applyDefaultsForLevel(Number(els.level.value));
 if (!els.feedbackPause.value) els.feedbackPause.value = "0.8";
 updateVolumeButtonState(null);
 renderDailyStats();
+initFirebaseSync();
+
+window.anzanFirebaseDebug = () => ({
+  firebaseConfigured: hasFirebaseConfig(FIREBASE_CONFIG),
+  firebaseLoading: "compat global scripts v10.12.4",
+  firebaseGlobalPresent: Boolean(window.firebase),
+  firebaseReady,
+  firebaseUser: firebaseUser ? { uid: firebaseUser.uid, email: firebaseUser.email } : null,
+  statusText: els.syncStatus ? els.syncStatus.textContent : null
+});
+
